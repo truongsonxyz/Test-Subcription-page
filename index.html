@@ -325,6 +325,16 @@ function computeTotals(){
   }); });
   return {revenue:revenue, packages:packages, sessions:sessions};
 }
+// Outstanding sessions: prepaid 5-session packages not yet strung. Snapshot of
+// current liability (un-done sessions), grouped by tone — independent of range.
+function computeRemaining(){
+  var byTone={BG65:0, BG66:0}, total=0, pkgs=0;
+  state.customers.forEach(function(c){ c.packages.forEach(function(p){
+    var undone=p.sessions.filter(function(s){return !s.done;}).length;
+    if(undone>0){ pkgs++; total+=undone; if(byTone[p.tone]!=null) byTone[p.tone]+=undone; }
+  }); });
+  return {total:total, byTone:byTone, pkgs:pkgs};
+}
 function computeReport(){
   var reportMode=state.reportMode, granularity=state.granularity, rangeFrom=state.rangeFrom, rangeTo=state.rangeTo; var T=TONES();
   var buckets=enumerate(rangeFrom, rangeTo, granularity);
@@ -600,7 +610,7 @@ function pageDetail(){
 }
 
 function pageReports(){
-  var st=state; var rep=computeReport();
+  var st=state; var rep=computeReport(); var T=TONES(); var rem=computeRemaining();
   function seg(active,act,label){
     if(active) return '<div style="padding:8px 14px;border-radius:9px;font-size:13px;font-weight:700;background:var(--accent,#2b5fc4);color:#fff;cursor:pointer">'+label+'</div>';
     return '<div class="seg" data-act="'+act+'" style="padding:8px 14px;border-radius:9px;font-size:13px;font-weight:600;color:#5a7299;cursor:pointer">'+label+'</div>';
@@ -622,6 +632,25 @@ function pageReports(){
   }).join('');
   var reportTitle=(st.reportMode==='revenue'?'Doanh thu theo ':'Lượt đan theo ')+(st.granularity==='day'?'ngày':st.granularity==='week'?'tuần':'tháng');
 
+  var remTones=[
+    {label:'BG65 Titanium', color:T.BG65.color, n:rem.byTone.BG65, val:rem.byTone.BG65*T.BG65.per},
+    {label:'BG66 Ultimax',  color:T.BG66.color, n:rem.byTone.BG66, val:rem.byTone.BG66*T.BG66.per}
+  ];
+  var remBox=function(title, dot, num, sub){
+    return '<div style="flex:1;min-width:150px;background:#f4f7fc;border-radius:14px;padding:17px 19px">'
+      + '<div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#5a7299;font-weight:700;margin-bottom:8px">'+(dot?'<span style="width:11px;height:11px;border-radius:3px;background:'+dot+'"></span>':'')+esc(title)+'</div>'
+      + '<div style="font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em;'+(dot?'':'color:#e07b1a')+'">'+num+'</div>'
+      + (sub?'<div style="font-size:12px;color:#7a8eaa;font-weight:600;margin-top:4px">'+sub+'</div>':'')
+    + '</div>';
+  };
+  var remHtml='<div style="background:#fff;border:1px solid #e6edf6;border-radius:20px;padding:24px 26px;box-shadow:0 6px 20px rgba(27,63,134,.05);margin-bottom:18px">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:18px"><div style="font-size:15px;font-weight:800">Cước chưa đan · còn lại</div><div style="font-size:12px;color:#90a2bf;font-weight:600">Toàn bộ gói (không theo khoảng ngày)</div></div>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap">'
+      + remBox('Tổng lần chưa đan','', rem.total+' lần', rem.pkgs+' gói đang còn lần')
+      + remTones.map(function(t){ return remBox(t.label, t.color, t.n+' lần', '≈ '+fmt(t.val)+' tồn'); }).join('')
+    + '</div>'
+  + '</div>';
+
   return '<div style="position:relative;z-index:1;padding:32px 38px 48px;'+(ANIM_PAGE?'animation:pageIn .45s ease both':'')+'">'
     + '<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:24px">'
       + '<div><div style="font-size:26px;font-weight:800;letter-spacing:-.02em">Báo cáo</div><div style="font-size:13.5px;color:#5a7299;font-weight:500;margin-top:3px">Doanh thu &amp; lượt đan theo thời gian</div></div>'
@@ -639,6 +668,7 @@ function pageReports(){
       + '<div style="background:#fff;border:1px solid #e6edf6;border-radius:18px;padding:22px;box-shadow:0 6px 20px rgba(27,63,134,.05)"><div style="font-size:13px;color:#7a8eaa;font-weight:600;margin-bottom:10px">Số gói bán ra</div><div id="cPkg" style="font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em">'+st.counts.packages+'</div></div>'
       + '<div style="background:#fff;border:1px solid #e6edf6;border-radius:18px;padding:22px;box-shadow:0 6px 20px rgba(27,63,134,.05)"><div style="font-size:13px;color:#7a8eaa;font-weight:600;margin-bottom:10px">Lượt đan thực hiện</div><div id="cSess" style="font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:#2e9e6b">'+st.counts.sessions+'</div></div>'
     + '</div>'
+    + remHtml
     + '<div style="background:#fff;border:1px solid #e6edf6;border-radius:20px;padding:24px 26px;box-shadow:0 6px 20px rgba(27,63,134,.05);margin-bottom:18px">'
       + '<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:26px"><div style="font-size:15px;font-weight:800">'+esc(reportTitle)+'</div>'
         + '<div style="display:flex;gap:6px;background:#f0f4fa;border-radius:11px;padding:4px">'+modeSeg(st.reportMode==='revenue','setModeRevenue','Doanh thu')+modeSeg(st.reportMode==='sessions','setModeSessions','Lượt đan')+'</div></div>'

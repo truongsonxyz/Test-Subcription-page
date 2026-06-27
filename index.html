@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XBSports Đà Nẵng — Quản lý gói đan cước</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{ font-family:'Plus Jakarta Sans',system-ui,sans-serif; background:#eef3fa; color:#16243d; }
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb{ background:rgba(27,63,134,.18); border-radius:8px; border:3px solid transparent; background-clip:content-box; }
+  input,button,textarea{ font-family:inherit; }
+  input:focus,textarea:focus{ outline:none; }
+  :root{ --accent:#2b5fc4; --accent2:#5b8def; --accent-deep:#1f3f86; --glass:22px; }
+
+  @keyframes pageIn{ from{ opacity:0; transform:translateY(14px); } to{ opacity:1; transform:none; } }
+  @keyframes cardIn{ from{ opacity:0; transform:translateY(18px) scale(.97); } to{ opacity:1; transform:none; } }
+  @keyframes ovIn{ from{ opacity:0; } to{ opacity:1; } }
+  @keyframes ovOut{ from{ opacity:1; } to{ opacity:0; } }
+  @keyframes sheetIn{ from{ opacity:0; transform:translateY(26px) scale(.95); } to{ opacity:1; transform:none; } }
+  @keyframes sheetOut{ from{ opacity:1; transform:none; } to{ opacity:0; transform:translateY(16px) scale(.97); } }
+  @keyframes popIn{ 0%{ transform:scale(.3); opacity:0; } 60%{ transform:scale(1.18); } 100%{ transform:scale(1); opacity:1; } }
+  @keyframes growBar{ from{ transform:scaleY(0); } to{ transform:scaleY(1); } }
+  @keyframes growW{ from{ transform:scaleX(0); } to{ transform:scaleX(1); } }
+  @keyframes toastIn{ from{ opacity:0; transform:translate(-50%,18px); } to{ opacity:1; transform:translate(-50%,0); } }
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:.001ms !important; animation-delay:0ms !important; transition-duration:.001ms !important; }
+  }
+
+  /* hover / focus helpers (the design runtime did these inline) */
+  .nav-in:hover{ background:rgba(255,255,255,.07)!important; color:#fff!important; }
+  .btnp{ transition:transform .15s ease, box-shadow .15s ease; }
+  .btnp:hover{ transform:translateY(-2px); box-shadow:0 12px 26px rgba(31,63,134,.36); }
+  .card:hover{ transform:translateY(-9px) scale(1.014)!important; box-shadow:0 34px 66px rgba(27,63,134,.26), inset 0 1px 1px rgba(255,255,255,.95)!important; }
+  .pkgc:hover{ transform:translateY(-6px)!important; box-shadow:0 22px 48px rgba(27,63,134,.14)!important; }
+  .back:hover{ color:var(--accent)!important; }
+  .inp:focus{ border-color:var(--accent)!important; }
+  .seg:hover{ background:#f0f4fa; }
+  .presetrow:hover{ background:#f4f7fc; }
+  .rangebtn:hover{ border-color:var(--accent)!important; }
+  .toneopt:hover{ border-color:#c2cfe2!important; }
+  .sess:hover{ opacity:.85; }
+  .sess-empty:hover .sessbox{ border-color:var(--accent)!important; color:var(--accent)!important; }
+  .ghostbtn:hover{ background:#e6edf6!important; }
+  .calday:hover{ filter:brightness(.97); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+"use strict";
+/*
+ * XBSports Đà Nẵng — quản lý gói đan cước (standalone, no build step).
+ * Sections below, in order:
+ *   constants & helpers   — tones, currency/date formatting, id counter
+ *   seed data & storage   — demo customers + localStorage persistence
+ *   state & mutations     — single state object; setState() re-renders
+ *   reports & range picker — totals, chart buckets, calendar logic
+ *   view (pure functions) — return HTML strings from state
+ *   render + events       — innerHTML render w/ focus preservation, delegation
+ */
+(function(){
+
+// ---------- config (Supabase) ----------
+var SUPABASE_URL = 'https://qhxasiegmnjixsywxkpr.supabase.co';
+var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFoeGFzaWVnbW5qaXhzeXd4a3ByIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1MzI0MDgsImV4cCI6MjA5ODEwODQwOH0.DvQMGbplHi4hN5q5EbWxr8V3wzkXCThTEUJhCREDmtU';
+var sb = (typeof window!=='undefined' && window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY)
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+var CLOUD = !!sb;
+
+// ---------- constants ----------
+var LS_KEY = 'xbsports_dn_v1';           // local-mode store
+var CACHE_KEY = 'xbsports_cloud_cache';  // cloud read-cache (offline fallback)
+function TONES(){
+  return {
+    BG65:{ key:'BG65', label:'BG65 Titanium', short:'BG65', per:140000, total:560000, color:'#5b8def' },
+    BG66:{ key:'BG66', label:'BG66 Ultimax',  short:'BG66', per:195000, total:780000, color:'#1f3f86' }
+  };
+}
+var LOGO_WHITE = '<svg viewBox="0 0 658.08 160.57" xmlns="http://www.w3.org/2000/svg" style="width:176px;height:auto;display:block"><path fill="#ffffff" d="M193.83,135.62,65.7,128.54a14.12,14.12,0,0,1-13.29-15.41l7.05-75.39A14.13,14.13,0,0,1,73.53,24.93H183.31a14.11,14.11,0,0,1,14,12.21Q203,78.38,208.6,119.6A14.12,14.12,0,0,1,193.83,135.62Z"/><path fill="#7ea6f0" d="M90.22,74.38h0a.83.83,0,0,0,1.38,0h0l6.83-10.07h0l1.42-2.11a.84.84,0,0,0,0-1l-1-1.51L94.34,53a.85.85,0,0,0-.69-.37h-10a4.19,4.19,0,0,0-3.38,6.54l3.26,5Z"/><path fill="#7ea6f0" d="M180.61,89.18a17.09,17.09,0,0,0-1.26-2.67,19.64,19.64,0,0,0-4.51-5.24,1.94,1.94,0,0,1-.5-2.5,15.88,15.88,0,0,0,1.2-2.45,15.38,15.38,0,0,0-.69-12.52A18.42,18.42,0,0,0,170.24,58a22.32,22.32,0,0,0-6.76-3.89,23.94,23.94,0,0,0-8.16-1.4l-41.8,0a.94.94,0,0,0-.79.41L110.09,57l-.76,1.12L105,64.4v0L98.09,74.56,90.24,86.07l-6.6,9.68-3.33,4.86a4.41,4.41,0,0,0,3.4,6.75l9.83.55a.84.84,0,0,0,.76-.37l7.65-11,6.85-9.84,4.18-6L117,75l7.15-10.28,0,0v0h.06l0,0,6.81.08,19.55.24a2.82,2.82,0,0,1,.41,0A6.64,6.64,0,0,1,155,66.63a5,5,0,0,1,1.86,3.89A4.72,4.72,0,0,1,155,74.26a6.53,6.53,0,0,1-4.49,1.49l-8.47-.2h0l-4.8-.11a1,1,0,0,0-.83.41l-5.27,7.44-1.85,2.6a1,1,0,0,0,.82,1.54l.87,0,24.33.79,1,.09A6.88,6.88,0,0,1,159.87,90a5,5,0,0,1,1.88,3.86,4.7,4.7,0,0,1-1.88,3.79A6.21,6.21,0,0,1,156.8,99a7.9,7.9,0,0,1-1.46.07L131,97.85l-6.34-.29a1,1,0,0,1-.81-.45l-1.21-1.82L117.1,87h0a1,1,0,0,0-1.6-.06h0L113,90.54l-4.42,6.3L107.07,99a.93.93,0,0,0,0,1.06l5.57,8.53a1,1,0,0,0,.8.47l46.73,2.62a23.22,23.22,0,0,0,8.22-.94,21,21,0,0,0,6.82-3.51,17.32,17.32,0,0,0,4.65-5.54,13.49,13.49,0,0,0,.72-1.6,14.87,14.87,0,0,0,1-5.4A15.68,15.68,0,0,0,180.61,89.18Z"/><path fill="#ffffff" d="M322.49,67.13a1,1,0,0,0,.22,1.27,13.08,13.08,0,0,1,3,3.89A13.35,13.35,0,0,1,326,83.17a13.25,13.25,0,0,1-7,7,13,13,0,0,1-5.09,1h-29.7a1,1,0,0,1-1-1V62.63a1,1,0,0,1,.46-.87l5.11-3.36a.72.72,0,0,0-.4-1.32h-8.05a1,1,0,0,1-.92-1.5l4.71-7.47L310.92,48A12.9,12.9,0,0,1,316,49a13.16,13.16,0,0,1,7,7,13.18,13.18,0,0,1-.47,11.13ZM295.82,59v5.3a1,1,0,0,0,1,1h10.68a3.61,3.61,0,0,0,2.63-1.09,3.52,3.52,0,0,0,1.08-2.57A3.69,3.69,0,0,0,307.53,58H296.85A1,1,0,0,0,295.82,59Zm14.51,22.16A3.69,3.69,0,0,0,314,77.47,3.52,3.52,0,0,0,313,74.9a3.57,3.57,0,0,0-2.63-1.09H296.85a1,1,0,0,0-1,1v5.3a1,1,0,0,0,1,1Z"/><path fill="#ffffff" d="M331.23,60.2a12.44,12.44,0,0,1,1-4.91,12.85,12.85,0,0,1,2.71-4,12.61,12.61,0,0,1,4-2.71,12.28,12.28,0,0,1,4.92-1l28.22-2.85c.57-.07,2-.34,1.9.22a25.53,25.53,0,0,1-1,3.81l-2.16,6.37a2,2,0,0,1-1.79,1.11l-22.29.09a3.86,3.86,0,0,0-3.87,3.86A3.62,3.62,0,0,0,344,62.88,3.71,3.71,0,0,0,346.78,64H361A12.33,12.33,0,0,1,366,65a13,13,0,0,1,4,2.71,12.51,12.51,0,0,1,2.68,4,12.67,12.67,0,0,1,0,9.82,12.61,12.61,0,0,1-2.71,4,9,9,0,0,1-4,2.71c-1.64.4-2.82.64-4.84,1-.17,0-.1,0-.14,0l-29.6,5.28a2,2,0,0,1-2-2.92l2.76-7.38a2,2,0,0,1,1.59-1.09L358,80.51h.16a3.71,3.71,0,0,0,2.6-1.13,3.76,3.76,0,0,0,1.13-2.74,3.64,3.64,0,0,0-1.1-2.65,3.87,3.87,0,0,0-2.65-1.16H343.68a12.65,12.65,0,0,1-4.89-1.07,13,13,0,0,1-4-2.71,12.27,12.27,0,0,1-2.65-4A12.56,12.56,0,0,1,331.23,60.2Z"/><path fill="#ffffff" d="M380,48.62a1.22,1.22,0,0,1,1.12-.66l28,.94a11.83,11.83,0,0,1,4.71.94,12.16,12.16,0,0,1,3.86,2.6,12.28,12.28,0,0,1,2.6,3.85,12.3,12.3,0,0,1,0,9.43,12.16,12.16,0,0,1-6.46,6.46,11.83,11.83,0,0,1-4.71.94H391.79V88.89h-11.2v-27l7-4.63-11.44-1Zm11.79,8.67v7.37H406.3a3.6,3.6,0,0,0,2.63-1.08A3.52,3.52,0,0,0,410,61a3.7,3.7,0,0,0-3.71-3.72Z"/><path fill="#ffffff" d="M423.17,62.88l7-4.62h-5.73a1.21,1.21,0,0,1-1.19-1.39,8.19,8.19,0,0,1,.55-1.87,8.58,8.58,0,0,1,1.8-2.69,8.37,8.37,0,0,1,2.66-1.79,8.08,8.08,0,0,1,3.28-.66h23.82a8.19,8.19,0,0,1,3.26.66,8.59,8.59,0,0,1,2.71,1.79,8.33,8.33,0,0,1,2.49,5.95V81.45a6.94,6.94,0,0,1-.74,3.17,17.56,17.56,0,0,1-1.77,2.77,1.9,1.9,0,0,1-.4.4,4.25,4.25,0,0,0-.46.4,8.1,8.1,0,0,1-2.37,1.23,8.42,8.42,0,0,1-2.72.43H431.57a8.08,8.08,0,0,1-3.28-.66,8.23,8.23,0,0,1-2.66-1.8,8.52,8.52,0,0,1-1.8-2.65,8.16,8.16,0,0,1-.66-3.29Zm11.2-2.68V79.51a1.95,1.95,0,0,0,1.94,1.94h14.34a1.86,1.86,0,0,0,1.37-.57,1.88,1.88,0,0,0,.58-1.37V60.2a1.88,1.88,0,0,0-.58-1.37,1.86,1.86,0,0,0-1.37-.57H436.31a1.95,1.95,0,0,0-1.94,1.94Z"/><path fill="#ffffff" d="M469.8,50.52a1.2,1.2,0,0,1,1.08-.66h27.77a11.83,11.83,0,0,1,4.71.94,12.44,12.44,0,0,1,3.86,2.6,12.13,12.13,0,0,1,2.59,3.86,11.76,11.76,0,0,1,.95,4.71,12.23,12.23,0,0,1-.6,3.83,11.21,11.21,0,0,1-1.72,3.31,12.81,12.81,0,0,1-2.6,2.6,12,12,0,0,1-3.31,1.74l8.23,16.4H498.19l-7.94-15.77h-8.91V89.85h-11.2v-27l7-4.62h-11.2Zm11.54,7.74v7.37H495.9a3.53,3.53,0,0,0,2.57-1.09A3.49,3.49,0,0,0,499.56,62a3.7,3.7,0,0,0-3.71-3.71Z"/><path fill="#ffffff" d="M517.92,49.81l39.91-1L553.26,57,541,58.26V89.85H529.7v-27l7-4.62H512.91l4-7.8A1.2,1.2,0,0,1,517.92,49.81Z"/><path fill="#ffffff" d="M562.09,60.13a12.37,12.37,0,0,1,1-4.93,12.61,12.61,0,0,1,2.71-4,13,13,0,0,1,4-2.72,12.54,12.54,0,0,1,4.93-1L603,44.62c.57-.07,2-.34,1.91.23a27,27,0,0,1-1,3.82l-2.16,6.38a2.05,2.05,0,0,1-1.8,1.12l-22.34.08a3.88,3.88,0,0,0-3.89,3.88,3.65,3.65,0,0,0,1.14,2.68,3.71,3.71,0,0,0,2.75,1.13H592a12.19,12.19,0,0,1,4.95,1,12.76,12.76,0,0,1,4,2.71,12.58,12.58,0,0,1,2.69,4,12.72,12.72,0,0,1,0,9.84,12.8,12.8,0,0,1-2.72,4,9.05,9.05,0,0,1-4,2.71c-1.64.41-2.83.65-4.85,1-.17,0-.1,0-.14,0l-29.67,5.29a2,2,0,0,1-2-2.93L563,84.21a2,2,0,0,1,1.59-1.1l24.35-2.63h.16a3.68,3.68,0,0,0,2.61-1.14,3.74,3.74,0,0,0,1.13-2.74,3.66,3.66,0,0,0-1.1-2.66,3.89,3.89,0,0,0-2.66-1.16H574.57a12.74,12.74,0,0,1-4.9-1.07,13.23,13.23,0,0,1-4-2.72,12.11,12.11,0,0,1-2.65-4A12.47,12.47,0,0,1,562.09,60.13Z"/><path fill="#ffffff" d="M248,48.07l7.3,10.73,7.23-10.73h14.59L262.55,69.52,277.08,91H262.49l-7.23-10.73L248,91H233.44L248,69.52,233.44,48.07Z"/></svg>';
+
+// ---------- helpers ----------
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmt(n){ return (n||0).toLocaleString('vi-VN')+'đ'; }
+function fmtShort(n){ if(n>=1000000) return (n/1000000).toFixed(n%1000000?1:0).replace('.0','')+'tr'; if(n>=1000) return Math.round(n/1000)+'k'; return n+''; }
+function dShort(iso){ if(!iso) return '—'; var p=iso.split('-'); return p[2]+'/'+p[1]; }
+function dLong(iso){ if(!iso) return '—'; var p=iso.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
+function dMid(iso){ if(!iso) return '—'; var p=iso.split('-'); return (+p[2])+'/'+(+p[1])+'/'+p[0]; }
+function norm(s){ return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/đ/g,'d'); }
+function pad(n){ return String(n).padStart(2,'0'); }
+function localIso(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+function addDaysIso(iso,n){ var d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return localIso(d); }
+function formatVNLong(iso){ if(!iso) return 'Chọn ngày'; var p=iso.split('-'); return (+p[2])+' Tháng '+(+p[1])+' năm '+p[0]; }
+function today(){ return '2026-06-26'; }
+function uid(){ state._uid=(state._uid||100)+1; return state._uid; }
+
+// ---------- seed data ----------
+function buildData(){
+  var notes=['','Căng theo yêu cầu giải đấu','Khách thuận tay trái','Thay grip cuốn cán mới','Kiểm tra khung vợt'];
+  var T=TONES();
+  function addDays(iso,d){ var dt=new Date(iso+'T00:00:00'); dt.setDate(dt.getDate()+d); return dt.toISOString().slice(0,10); }
+  function mk(id,toneKey,buy,done,racket,off){
+    var t=T[toneKey];
+    var sessions=Array.from({length:5},function(_,i){
+      if(i<done) return {done:true, date:addDays(buy,i*9+4), tension:[24,25,26,27,28][(i+off)%5], racket:racket, note:notes[(i+off)%notes.length]};
+      return {done:false, date:'', tension:'', racket:'', note:''};
+    });
+    return {id:id, tone:toneKey, total:t.total, per:t.per, buyDate:buy, sessions:sessions};
+  }
+  return [
+    {id:'c1', name:'Nguyễn Văn Hải', phone:'0905 123 456', initials:'NH', racket:'Yonex Astrox 99 Pro', packages:[ mk('p1','BG66','2026-06-12',3,'Yonex Astrox 99 Pro',0), mk('p2','BG65','2026-03-02',5,'Yonex Astrox 99 Pro',1) ]},
+    {id:'c2', name:'Trần Thị Mai Anh', phone:'0912 884 207', initials:'MA', racket:'Arcsaber 11 Pro', packages:[ mk('p3','BG65','2026-06-20',1,'Arcsaber 11 Pro',2) ]},
+    {id:'c3', name:'Lê Quốc Bảo', phone:'0978 332 901', initials:'QB', racket:'Nanoflare 800 Pro', packages:[ mk('p4','BG66','2026-06-02',5,'Nanoflare 800 Pro',3), mk('p5','BG66','2026-01-15',5,'Nanoflare 800 Pro',1) ]},
+    {id:'c4', name:'Phạm Minh Quân', phone:'0934 561 778', initials:'MQ', racket:'Astrox 100 ZZ', packages:[ mk('p6','BG65','2026-06-18',4,'Astrox 100 ZZ',2) ]},
+    {id:'c5', name:'Võ Thành Trung', phone:'0901 447 552', initials:'TT', racket:'Astrox 88D Pro', packages:[ mk('p7','BG66','2026-06-22',2,'Astrox 88D Pro',0) ]},
+    {id:'c6', name:'Đỗ Thị Hồng', phone:'0967 220 145', initials:'TH', racket:'Nanoflare 700', packages:[ mk('p8','BG65','2026-05-28',5,'Nanoflare 700',4) ]}
+  ];
+}
+
+// ---------- persistence ----------
+function loadLocal(){
+  try{ var raw=localStorage.getItem(LS_KEY); if(raw){ var d=JSON.parse(raw); if(Array.isArray(d)) return d; } }catch(e){}
+  return buildData();
+}
+function initialCustomers(){
+  // Cloud mode boots from the offline cache (or empty) and refreshes from
+  // Supabase in bootCloud(); local mode uses the seeded localStorage store.
+  if(CLOUD){ try{ var r=localStorage.getItem(CACHE_KEY); if(r){ var d=JSON.parse(r); if(Array.isArray(d)) return d; } }catch(e){} return []; }
+  return loadLocal();
+}
+// Snapshot to localStorage: real store in local mode, offline cache in cloud mode.
+function saveCustomers(){ try{ localStorage.setItem(CLOUD?CACHE_KEY:LS_KEY, JSON.stringify(state.customers)); }catch(e){} }
+
+// ---------- cloud (Supabase) ----------
+function custToRow(c){ return {id:c.id, name:c.name, phone:c.phone, initials:c.initials, racket:c.racket}; }
+function pkgToRow(custId,p){ return {id:p.id, customer_id:custId, tone:p.tone, total:p.total, per:p.per, buy_date:p.buyDate, sessions:p.sessions}; }
+function rowsToCustomers(custRows, pkgRows){
+  var map={};
+  var list=(custRows||[]).map(function(c){ var o={id:c.id, name:c.name, phone:c.phone||'—', initials:c.initials||'', racket:c.racket||'', packages:[]}; map[c.id]=o; return o; });
+  (pkgRows||[]).forEach(function(p){ var o=map[p.customer_id]; if(o) o.packages.push({id:p.id, tone:p.tone, total:p.total, per:p.per, buyDate:p.buy_date, sessions:p.sessions||[]}); });
+  return list;
+}
+function cloudErr(label){ return function(r){ if(r&&r.error){ console.error(label, r.error); toast('Lỗi đồng bộ: '+label); } }; }
+function cloudInsertCustomer(c){ if(!CLOUD) return; sb.from('customers').insert(custToRow(c)).then(cloudErr('thêm khách')); }
+function cloudInsertPackage(custId,p){ if(!CLOUD) return; sb.from('packages').insert(pkgToRow(custId,p)).then(cloudErr('thêm gói')); }
+function cloudUpdateSessions(pkgId,sessions){ if(!CLOUD) return; sb.from('packages').update({sessions:sessions}).eq('id',pkgId).then(cloudErr('lưu lần đan')); }
+function cloudLog(action, entity, entityId, label, detail){
+  if(!CLOUD) return;
+  sb.from('change_log').insert({action:action, entity:entity, entity_id:entityId, label:label, detail:detail||null})
+    .then(function(r){ if(r&&r.error) console.error('change_log', r.error); });
+}
+function bootCloud(){
+  if(!CLOUD) return;
+  sb.from('customers').select('*').order('created_at',{ascending:false}).then(function(cust){
+    if(cust.error) throw cust.error;
+    return sb.from('packages').select('*').order('buy_date',{ascending:false}).order('created_at',{ascending:false})
+      .then(function(pkg){ if(pkg.error) throw pkg.error; return {custRows:cust.data, pkgRows:pkg.data}; });
+  }).then(function(res){
+    setState({customers:rowsToCustomers(res.custRows, res.pkgRows), loading:false}); saveCustomers();
+  }).catch(function(e){
+    console.error('Cloud load failed', e);
+    setState({loading:false});
+    toast('Không kết nối được CSDL — đang dùng dữ liệu ngoại tuyến');
+  });
+}
+
+// ---------- state ----------
+var state = {
+  page:'list', selectedId:null, search:'',
+  modal:null, modalClosing:false,
+  reportMode:'revenue', granularity:'month',
+  rangeFrom:'2026-01-01', rangeTo:'2026-06-26', rangeLabel:'Tất cả',
+  rangeDraft:{from:'2026-06-01', to:'2026-06-26', presetName:'Tháng này', focus:'from', calY:2026, calM:4},
+  counts:{revenue:0, packages:0, sessions:0},
+  customers:initialCustomers(),
+  loading:CLOUD,
+  custForm:{name:'', phone:''},
+  pkgForm:{tone:'BG66'},
+  sessionForm:{pkgId:null, idx:0, date:'2026-06-26', tension:27, racket:'', note:'', isEdit:false},
+  justMarked:null, toast:null,
+  _uid:1000
+};
+// Seed the id counter from existing data so reloads never reissue an id that
+// was already persisted (otherwise a new customer/package could collide with a
+// saved one, e.g. both becoming "c1001").
+state._uid = (function(){
+  var max=1000;
+  state.customers.forEach(function(c){
+    var n=parseInt(String(c.id).replace(/\D/g,''),10); if(n>max) max=n;
+    (c.packages||[]).forEach(function(p){ var pn=parseInt(String(p.id).replace(/\D/g,''),10); if(pn>max) max=pn; });
+  });
+  return max;
+})();
+
+// ---------- derived ----------
+function statusOf(c){ if(!c.packages.length) return 'new'; var cur=c.packages[0]; return cur.sessions.filter(function(s){return s.done;}).length>=5 ? 'done':'active'; }
+function current(){ return state.customers.find(function(c){return c.id===state.selectedId;}); }
+function inRange(iso){ return !!iso && iso>=state.rangeFrom && iso<=state.rangeTo; }
+
+// ---------- mutations ----------
+var timers={};
+function setState(patch, cb){ Object.assign(state, patch); render(); if(cb) cb(); }
+
+function goList(){ setState({page:'list', selectedId:null}); }
+function goReports(){ setState({page:'reports'}, animateCounts); }
+function goDetail(id){ setState({page:'detail', selectedId:id}); }
+
+function openModal(name, extra){ setState(Object.assign({modal:name, modalClosing:false}, extra||{})); }
+function closeModal(){ setState({modalClosing:true}); clearTimeout(timers.mt); timers.mt=setTimeout(function(){ setState({modal:null, modalClosing:false}); },270); }
+
+function openSession(pkgId, idx){
+  var c=current(); var pkg=c.packages.find(function(p){return p.id===pkgId;}); var s=pkg.sessions[idx];
+  openModal('session', {sessionForm:{ pkgId:pkgId, idx:idx, date:s.done?s.date:today(), tension:s.done?s.tension:27, racket:s.done?s.racket:(c.racket||''), note:s.done?s.note:'', isEdit:s.done }});
+}
+function saveSession(){
+  var f=state.sessionForm;
+  var customers=state.customers.map(function(c){
+    if(c.id!==state.selectedId) return c;
+    return Object.assign({}, c, {packages:c.packages.map(function(p){
+      if(p.id!==f.pkgId) return p;
+      return Object.assign({}, p, {sessions:p.sessions.map(function(s,i){
+        return i===f.idx ? {done:true, date:f.date, tension:Number(f.tension)||0, racket:f.racket, note:f.note} : s;
+      })});
+    })});
+  });
+  setState({customers:customers, justMarked:f.pkgId+':'+f.idx}); saveCustomers();
+  var uc=customers.find(function(c){return c.id===state.selectedId;});
+  var up=uc?uc.packages.find(function(p){return p.id===f.pkgId;}):null;
+  if(up) cloudUpdateSessions(f.pkgId, up.sessions);
+  cloudLog('save_session','session',f.pkgId, (f.isEdit?'Sửa':'Ghi nhận')+' lần đan #'+(f.idx+1)+(uc?' · '+uc.name:''), {idx:f.idx, date:f.date, tension:Number(f.tension)||0});
+  clearTimeout(timers.jm); timers.jm=setTimeout(function(){ setState({justMarked:null}); },800);
+  toast(f.isEdit?'Đã cập nhật lần đan':'Đã ghi nhận lần đan mới');
+  closeModal();
+}
+function addCustomer(){
+  var f=state.custForm; if(!f.name.trim()) return;
+  var id='c'+uid();
+  var initials=f.name.trim().split(/\s+/).slice(-2).map(function(w){return w[0];}).join('').toUpperCase();
+  var cust={id:id, name:f.name.trim(), phone:f.phone.trim()||'—', initials:initials, racket:'', packages:[]};
+  setState({customers:[cust].concat(state.customers), custForm:{name:'',phone:''}}); saveCustomers();
+  cloudInsertCustomer(cust);
+  cloudLog('add_customer','customer',id,'Thêm khách: '+cust.name, {phone:cust.phone});
+  toast('Đã thêm khách hàng'); closeModal();
+  setTimeout(function(){ goDetail(id); },140);
+}
+function addPackage(){
+  var toneKey=state.pkgForm.tone; var id='p'+uid(); var T=TONES()[toneKey];
+  var pkg={id:id, tone:toneKey, total:T.total, per:T.per, buyDate:today(), sessions:Array.from({length:5},function(){return {done:false,date:'',tension:'',racket:'',note:''};})};
+  var custId=state.selectedId;
+  var customers=state.customers.map(function(c){ return c.id===custId ? Object.assign({},c,{packages:[pkg].concat(c.packages)}) : c; });
+  setState({customers:customers}); saveCustomers();
+  cloudInsertPackage(custId, pkg);
+  var cn=(current()||{}).name||'';
+  cloudLog('add_package','package',id,'Thêm gói '+T.label+(cn?' cho '+cn:''), {tone:toneKey, total:T.total});
+  toast('Đã tạo gói đan mới'); closeModal();
+}
+function toast(msg){ setState({toast:msg}); clearTimeout(timers.tt); timers.tt=setTimeout(function(){ setState({toast:null}); },2200); }
+
+// ---------- reports ----------
+function enumerate(from,to,gran){
+  var out=[]; var d0=new Date(from+'T00:00:00'), d1=new Date(to+'T00:00:00');
+  if(gran==='day'){
+    for(var d=new Date(d0); d<=d1; d.setDate(d.getDate()+1)){ var k=localIso(d); out.push({label:d.getDate()+'/'+(d.getMonth()+1), match:(function(kk){return function(iso){return iso===kk;};})(k)}); }
+  } else if(gran==='week'){
+    var s0=new Date(d0); var dow=(s0.getDay()+6)%7; s0.setDate(s0.getDate()-dow);
+    for(var s=new Date(s0); s<=d1; s.setDate(s.getDate()+7)){ var ks=localIso(s); var e=new Date(s); e.setDate(e.getDate()+6); var ke=localIso(e); out.push({label:s.getDate()+'/'+(s.getMonth()+1), match:(function(a,b){return function(iso){return iso>=a&&iso<=b;};})(ks,ke)}); }
+  } else {
+    var y=d0.getFullYear(), m=d0.getMonth(); var ey=d1.getFullYear(), em=d1.getMonth();
+    while(y<ey||(y===ey&&m<=em)){ var kk=y+'-'+pad(m+1); out.push({label:'Th'+(m+1), match:(function(key){return function(iso){return iso.slice(0,7)===key;};})(kk)}); m++; if(m>11){m=0;y++;} }
+  }
+  return out;
+}
+function computeTotals(){
+  var revenue=0, packages=0, sessions=0;
+  state.customers.forEach(function(c){ c.packages.forEach(function(p){
+    if(inRange(p.buyDate)){ revenue+=p.total; packages++; }
+    p.sessions.forEach(function(s){ if(s.done && inRange(s.date)) sessions++; });
+  }); });
+  return {revenue:revenue, packages:packages, sessions:sessions};
+}
+function computeReport(){
+  var reportMode=state.reportMode, granularity=state.granularity, rangeFrom=state.rangeFrom, rangeTo=state.rangeTo; var T=TONES();
+  var buckets=enumerate(rangeFrom, rangeTo, granularity);
+  var vals=buckets.map(function(){return 0;}); var byTone={BG65:0, BG66:0};
+  state.customers.forEach(function(c){ c.packages.forEach(function(p){
+    if(reportMode==='revenue'){ if(inRange(p.buyDate)){ var i=buckets.findIndex(function(b){return b.match(p.buyDate);}); if(i>=0){ vals[i]+=p.total; byTone[p.tone]+=p.total; } } }
+    else { p.sessions.forEach(function(s){ if(s.done && inRange(s.date)){ var i=buckets.findIndex(function(b){return b.match(s.date);}); if(i>=0){ vals[i]++; byTone[p.tone]++; } } }); }
+  }); });
+  var max=Math.max.apply(null,[1].concat(vals)); var few=buckets.length<=14; var every=Math.max(1,Math.ceil(buckets.length/12));
+  var bars=buckets.map(function(b,i){ return { label:b.label, axisLabel:(few||i%every===0)?b.label:'', valLabel: few?(reportMode==='revenue'?fmtShort(vals[i]):(vals[i]+'')):'', h:(vals[i]/max*100)+'%', delay:(Math.min(i,18)*45)+'ms' }; });
+  var tot=(byTone.BG65+byTone.BG66)||1;
+  var tone=[
+    {label:'BG65 Titanium', color:T.BG65.color, w:(byTone.BG65/tot*100)+'%', valLabel: reportMode==='revenue'? fmt(byTone.BG65):(byTone.BG65+' lượt')},
+    {label:'BG66 Ultimax', color:T.BG66.color, w:(byTone.BG66/tot*100)+'%', valLabel: reportMode==='revenue'? fmt(byTone.BG66):(byTone.BG66+' lượt')}
+  ];
+  return {bars:bars, tone:tone};
+}
+var rafId=null;
+function animateCounts(){
+  var t=computeTotals();
+  var elR=document.getElementById('cRev'), elP=document.getElementById('cPkg'), elS=document.getElementById('cSess');
+  if(!elR||!elP||!elS || document.hidden){ state.counts=t; if(elR){elR.textContent=fmt(t.revenue);elP.textContent=t.packages+'';elS.textContent=t.sessions+'';} return; }
+  var start=performance.now(), dur=850, ease=function(x){return 1-Math.pow(1-x,3);};
+  function tick(now){ var p=Math.min(1,(now-start)/dur), e=ease(p);
+    var cur={revenue:Math.round(t.revenue*e), packages:Math.round(t.packages*e), sessions:Math.round(t.sessions*e)};
+    state.counts=cur;
+    var r=document.getElementById('cRev'), pp=document.getElementById('cPkg'), ss=document.getElementById('cSess');
+    if(r){ r.textContent=fmt(cur.revenue); pp.textContent=cur.packages+''; ss.textContent=cur.sessions+''; }
+    if(p<1) rafId=requestAnimationFrame(tick);
+  }
+  cancelAnimationFrame(rafId); rafId=requestAnimationFrame(tick);
+}
+
+// ---------- range picker ----------
+function presetRange(key){
+  var T=today();
+  if(key==='today') return [T,T,'Hôm nay'];
+  if(key==='yesterday'){ var y=addDaysIso(T,-1); return [y,y,'Hôm qua']; }
+  if(key==='7d') return [addDaysIso(T,-6),T,'7 ngày trước'];
+  if(key==='30d') return [addDaysIso(T,-29),T,'30 ngày trước'];
+  if(key==='thisMonth') return ['2026-06-01',T,'Tháng này'];
+  return ['2026-05-01','2026-05-31','Tháng trước'];
+}
+function openRange(){
+  var to=state.rangeTo; var d=new Date(to+'T00:00:00');
+  var bm=d.getMonth()-1, by=d.getFullYear(); if(bm<0){bm=11;by--;}
+  openModal('range',{rangeDraft:{from:state.rangeFrom, to:to, presetName:state.rangeLabel, focus:'from', calY:by, calM:bm}});
+}
+function pickPreset(key){
+  var r=presetRange(key); var from=r[0],to=r[1],name=r[2]; var d=new Date(to+'T00:00:00');
+  var bm=d.getMonth()-1, by=d.getFullYear(); if(bm<0){bm=11;by--;}
+  setState({rangeDraft:Object.assign({},state.rangeDraft,{from:from, to:to, presetName:name, focus:'from', calY:by, calM:bm})});
+}
+function shiftCal(n){ var rd=state.rangeDraft; var m=rd.calM+n, y=rd.calY; while(m<0){m+=12;y--;} while(m>11){m-=12;y++;} setState({rangeDraft:Object.assign({},rd,{calM:m, calY:y})}); }
+function setFocus(f){ setState({rangeDraft:Object.assign({},state.rangeDraft,{focus:f})}); }
+function clickDay(iso){
+  var rd=state.rangeDraft; var from=rd.from, to=rd.to, focus=rd.focus;
+  if(focus==='from' || !from || (from&&to)){ from=iso; to=null; focus='to'; }
+  else { if(iso>=from){ to=iso; focus='from'; } else { from=iso; } }
+  setState({rangeDraft:Object.assign({},rd,{from:from, to:to, focus:focus, presetName:null})});
+}
+function applyRange(){
+  var rd=state.rangeDraft; var from=rd.from, to=rd.to||rd.from; if(from>to){ var t=from; from=to; to=t; }
+  var label=rd.presetName || (dMid(from)+' – '+dMid(to));
+  setState({rangeFrom:from, rangeTo:to, rangeLabel:label}, animateCounts);
+  closeModal();
+}
+function cellStyle(v){
+  var base='display:flex;align-items:center;justify-content:center;height:38px;border-radius:10px;font-size:13.5px;font-variant-numeric:tabular-nums;';
+  if(v==='spill') return base+'color:#c2cfe2;cursor:default;font-weight:500;';
+  if(v==='end') return base+'background:var(--accent,#2b5fc4);color:#fff;font-weight:700;cursor:pointer;box-shadow:0 4px 10px rgba(43,95,196,.3);';
+  if(v==='range') return base+'background:rgba(43,95,196,.12);color:var(--accent-deep,#1f3f86);font-weight:600;cursor:pointer;';
+  return base+'color:#16243d;font-weight:600;cursor:pointer;';
+}
+function buildCal(y,m,from,to){
+  var first=new Date(y,m,1); var dow=(first.getDay()+6)%7; var start=new Date(y,m,1-dow); var cells=[];
+  for(var i=0;i<42;i++){
+    var d=new Date(start); d.setDate(start.getDate()+i); var iso=localIso(d); var inMonth=d.getMonth()===m;
+    var v='norm';
+    if(!inMonth) v='spill';
+    else if(iso===from||iso===to) v='end';
+    else if(from&&to&&iso>from&&iso<to) v='range';
+    cells.push({day:d.getDate(), iso:iso, style:cellStyle(v), clickable:inMonth});
+  }
+  return cells;
+}
+
+// ======================================================================
+// VIEW
+// ======================================================================
+// Entrance animations should play only when a page/modal first APPEARS, never on
+// every re-render (a re-render on the same page replaying pageIn/sheetIn looked
+// like flicker). render() sets these by comparing against the previous render.
+var ANIM_PAGE=true, ANIM_MODAL=true;
+var _prevPage=null, _prevModal=null;
+var ICON={
+  users:'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path></svg>',
+  chart:'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><path d="m7 14 4-4 3 3 5-6"></path></svg>',
+  search:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#90a2bf" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>',
+  plus:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>',
+  plusAccent:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>',
+  check:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>',
+  checkBig:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>',
+  back:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"></path></svg>',
+  cal:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent,#2b5fc4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="3"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>',
+  chev:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#90a2bf" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>',
+  chevL:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"></path></svg>',
+  chevR:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>',
+  toastCheck:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3fb87a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>'
+};
+
+function sidebar(){
+  var totalRevenue=state.customers.reduce(function(a,c){return a+c.packages.reduce(function(x,p){return x+p.total;},0);},0);
+  var custOn=(state.page==='list'||state.page==='detail');
+  var repOn=(state.page==='reports');
+  function navItem(on, act, icon, label){
+    if(on) return '<div data-act="'+act+'" style="display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:14px;background:rgba(255,255,255,.16);color:#fff;font-weight:700;font-size:14.5px;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)">'+icon+label+'</div>';
+    return '<div data-act="'+act+'" class="nav-in" style="display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:14px;background:transparent;color:#9fb6dc;font-weight:600;font-size:14.5px;cursor:pointer">'+icon+label+'</div>';
+  }
+  return '<div style="width:252px;flex-shrink:0;background:linear-gradient(180deg,#1d3a6b 0%,#16243d 100%);padding:30px 22px 26px;display:flex;flex-direction:column;position:relative">'
+    + '<div style="margin:4px 0 12px 6px">'+LOGO_WHITE+'</div>'
+    + '<p style="margin:0 6px 30px;font-size:12.5px;line-height:1.5;color:#9fb6dc;font-weight:500">Theo dõi chương trình đan cước theo gói của XBSports Đà Nẵng.</p>'
+    + '<nav style="display:flex;flex-direction:column;gap:7px">'
+      + navItem(custOn,'goList',ICON.users,'Khách hàng')
+      + navItem(repOn,'goReports',ICON.chart,'Báo cáo')
+    + '</nav>'
+    + '<div style="margin-top:auto;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:17px">'
+      + '<div style="font-size:11px;color:#8ba3cc;font-weight:700;letter-spacing:.05em;margin-bottom:7px">TỔNG DOANH THU</div>'
+      + '<div style="font-size:21px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums;line-height:1.1">'+fmt(totalRevenue)+'</div>'
+      + '<div style="font-size:12px;color:#8ba3cc;font-weight:600;margin-top:6px">'+state.customers.length+' khách hàng</div>'
+    + '</div>'
+  + '</div>';
+}
+
+function bgLayers(){
+  return '<div style="position:fixed;top:0;bottom:0;left:252px;right:0;pointer-events:none;z-index:0;background:radial-gradient(900px 720px at 16% 16%, rgba(124,172,255,.44), transparent 60%), radial-gradient(820px 680px at 88% 8%, rgba(170,210,255,.42), transparent 62%), radial-gradient(1040px 820px at 80% 84%, rgba(82,134,230,.34), transparent 60%), radial-gradient(780px 640px at 18% 90%, rgba(150,198,252,.38), transparent 62%), radial-gradient(620px 520px at 47% 44%, rgba(255,250,236,.36), transparent 64%), linear-gradient(165deg, #ecf4fe 0%, #dbe8fb 52%, #e9f1fc 100%)"></div>'
+  + '<div style="position:fixed;top:0;bottom:0;left:252px;right:0;pointer-events:none;z-index:0;opacity:.5;mix-blend-mode:soft-light;background-image:url(\'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22180%22 height=%22180%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.82%22 numOctaves=%222%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E\');background-size:180px 180px"></div>'
+  + '<div id="glow" style="position:fixed;top:0;bottom:0;left:252px;right:0;pointer-events:none;z-index:0;background:radial-gradient(540px circle at var(--mx,60%) var(--my,38%), var(--glow-warm,rgba(255,246,225,.42)), transparent 62%), radial-gradient(680px circle at var(--mx2,40%) var(--my2,70%), var(--glow-cool,rgba(120,178,255,.34)), transparent 66%);transition:background .18s ease"></div>';
+}
+
+function pageList(){
+  var st=state; var noA=!ANIM_PAGE; var q=norm(st.search), qd=st.search.replace(/\D/g,'');
+  var filtered=st.customers;
+  if(st.search.trim()) filtered=st.customers.filter(function(c){ return norm(c.name).includes(q) || (qd && c.phone.replace(/\D/g,'').includes(qd)); });
+  var activeCount=st.customers.filter(function(x){return statusOf(x)==='active';}).length;
+
+  var cardsHtml='';
+  filtered.forEach(function(c,i){
+    var status=statusOf(c); var cur=c.packages[0];
+    var done=cur? cur.sessions.filter(function(s){return s.done;}).length : 0;
+    var cells=cur? cur.sessions.map(function(s){return {done:s.done};}) : Array.from({length:5},function(){return {done:false};});
+    var racket=c.racket; if(!racket && cur){ var r=cur.sessions.find(function(s){return s.racket;}); racket=r?r.racket:''; }
+    var toneShort=cur? TONES()[cur.tone].short : '—';
+    var usedLabel=cur? (done+'/5 lần') : 'Chưa có gói';
+    var badge='';
+    if(status==='active') badge='<span style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#1f7a4d;background:linear-gradient(150deg,rgba(255,255,255,.5),rgba(74,200,140,.28));border:1px solid rgba(255,255,255,.5);padding:5px 11px;border-radius:10px;box-shadow:inset 0 1px 1px rgba(255,255,255,.6)"><span style="width:7px;height:7px;border-radius:50%;background:#2e9e6b;box-shadow:0 0 6px rgba(46,158,107,.8)"></span>Đang dùng</span>';
+    else if(status==='done') badge='<span style="font-size:12px;font-weight:700;color:#5a6f92;background:linear-gradient(150deg,rgba(255,255,255,.5),rgba(180,198,224,.3));border:1px solid rgba(255,255,255,.5);padding:5px 11px;border-radius:10px;box-shadow:inset 0 1px 1px rgba(255,255,255,.6)">Đã hết</span>';
+    else badge='<span style="font-size:12px;font-weight:700;color:var(--accent-deep,#1f3f86);background:linear-gradient(150deg,rgba(255,255,255,.5),rgba(120,170,255,.3));border:1px solid rgba(255,255,255,.5);padding:5px 11px;border-radius:10px;box-shadow:inset 0 1px 1px rgba(255,255,255,.6)">Khách mới</span>';
+    var cellsHtml=cells.map(function(cell){
+      if(cell.done) return '<span style="flex:1;height:36px;border-radius:13px;display:flex;align-items:center;justify-content:center;background:linear-gradient(150deg,rgba(86,206,146,.72),rgba(46,158,107,.6));border:1px solid rgba(255,255,255,.55);box-shadow:0 5px 14px rgba(46,158,107,.32), inset 0 1px 1px rgba(255,255,255,.7)">'+ICON.check+'</span>';
+      return '<span style="flex:1;height:36px;border-radius:13px;background:linear-gradient(150deg,rgba(255,255,255,.4),rgba(190,214,255,.22));border:1px solid rgba(255,255,255,.5);box-shadow:inset 0 1px 1px rgba(255,255,255,.6)"></span>';
+    }).join('');
+    cardsHtml += '<div class="card" data-act="open" data-id="'+esc(c.id)+'" style="position:relative;background:linear-gradient(150deg,rgba(255,255,255,.46) 0%,rgba(189,216,255,.30) 100%);backdrop-filter:blur(var(--glass,20px)) saturate(175%);-webkit-backdrop-filter:blur(var(--glass,20px)) saturate(175%);border:1px solid rgba(255,255,255,.6);border-radius:24px;padding:20px;box-shadow:0 18px 44px rgba(27,63,134,.18), inset 0 1px 1px rgba(255,255,255,.9), inset 0 -1px 1px rgba(255,255,255,.18);overflow:hidden;cursor:pointer;'+(noA?'':'animation:cardIn .5s cubic-bezier(.2,.8,.2,1) both;animation-delay:'+(i*55)+'ms;')+'transition:transform .4s cubic-bezier(.34,1.4,.5,1),box-shadow .4s ease">'
+      + '<div style="position:absolute;top:-60px;left:-30px;width:200px;height:140px;background:radial-gradient(ellipse at center,rgba(255,255,255,.7),transparent 70%);pointer-events:none"></div>'
+      + '<div style="position:absolute;top:0;right:0;width:130px;height:130px;background:radial-gradient(circle at 70% 30%,rgba(140,185,255,.35),transparent 65%);pointer-events:none"></div>'
+      + '<div style="position:relative;display:flex;align-items:center;gap:13px;margin-bottom:18px">'
+        + '<div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(140deg,var(--accent2,#5b8def),var(--accent,#2b5fc4));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;box-shadow:0 6px 16px rgba(43,95,196,.4), inset 0 1px 1px rgba(255,255,255,.5), 0 0 0 3px rgba(255,255,255,.45)">'+esc(c.initials)+'</div>'
+        + '<div style="flex:1;min-width:0">'
+          + '<div style="font-weight:700;font-size:16px;color:#142a4d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(c.name)+'</div>'
+          + '<div style="font-size:13px;color:#4d6896;font-variant-numeric:tabular-nums">'+esc(c.phone)+'</div>'
+        + '</div>'+badge
+      + '</div>'
+      + '<div style="position:relative;display:flex;gap:9px;margin-bottom:16px">'+cellsHtml+'</div>'
+      + '<div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px">'
+        + '<div style="display:flex;align-items:center;gap:8px;min-width:0">'
+          + '<span style="font-size:12.5px;font-weight:700;color:var(--accent-deep,#1f3f86);background:linear-gradient(150deg,rgba(255,255,255,.5),rgba(120,170,255,.28));border:1px solid rgba(255,255,255,.5);padding:5px 11px;border-radius:10px;white-space:nowrap;box-shadow:inset 0 1px 1px rgba(255,255,255,.6)">'+esc(toneShort)+'</span>'
+          + '<span style="font-size:12.5px;color:#5c739a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(racket||'Chưa có vợt')+'</span>'
+        + '</div>'
+        + '<span style="font-size:12.5px;font-weight:700;color:#142a4d;white-space:nowrap;font-variant-numeric:tabular-nums">'+esc(usedLabel)+'</span>'
+      + '</div>'
+    + '</div>';
+  });
+
+  function emptyState(title, sub){ return '<div style="text-align:center;padding:80px 20px;color:#90a2bf"><div style="font-size:17px;font-weight:700;color:#5a7299;margin-bottom:6px">'+title+'</div><div style="font-size:14px">'+sub+'</div></div>'; }
+  var grid;
+  if(filtered.length>0){ grid='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:18px">'+cardsHtml+'</div>'; }
+  else if(st.loading){ grid=emptyState('Đang tải dữ liệu…','Kết nối tới cơ sở dữ liệu'); }
+  else if(!st.search.trim()){ grid=emptyState('Chưa có khách hàng','Bấm “Khách mới” để thêm khách đầu tiên'); }
+  else { grid=emptyState('Không tìm thấy khách hàng','Thử tên hoặc số điện thoại khác'); }
+
+  return '<div style="position:relative;z-index:1;min-height:100%;padding:32px 38px 44px;'+(noA?'':'animation:pageIn .45s ease both')+'"><div style="position:relative">'
+    + '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:14px 18px;margin-bottom:24px">'
+      + '<div style="flex:1;min-width:190px"><div style="font-size:26px;font-weight:800;letter-spacing:-.02em;white-space:nowrap">Khách hàng</div><div style="font-size:13.5px;color:#5a7299;font-weight:500;margin-top:3px">'+st.customers.length+' khách · '+activeCount+' gói đang dùng</div></div>'
+      + '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">'
+        + '<div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.85);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.9);border-radius:14px;padding:11px 16px;width:290px;box-shadow:0 6px 18px rgba(27,63,134,.07)">'+ICON.search
+          + '<input class="inp" data-inp="search" data-k="search" value="'+esc(st.search)+'" placeholder="Tìm theo tên / số điện thoại…" style="border:none;background:transparent;font-size:14px;color:#16243d;width:100%"></div>'
+        + '<button class="btnp" data-act="addCustomer" style="display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,var(--accent,#2b5fc4),var(--accent-deep,#1f3f86));color:#fff;border:none;border-radius:14px;padding:13px 19px;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;box-shadow:0 8px 20px rgba(31,63,134,.28)">'+ICON.plus+'Khách mới</button>'
+      + '</div>'
+    + '</div>'+grid
+  + '</div></div>';
+}
+
+function pageDetail(){
+  var c=current(); if(!c) return '';
+  var T=TONES();
+  var status=statusOf(c);
+  var statusBadge='';
+  if(status==='active') statusBadge='<span style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#2e7d52;background:rgba(46,158,107,.13);padding:5px 11px;border-radius:9px"><span style="width:7px;height:7px;border-radius:50%;background:#2e9e6b"></span>Đang dùng</span>';
+  else if(status==='done') statusBadge='<span style="font-size:12px;font-weight:700;color:#6b7d99;background:rgba(144,162,191,.16);padding:5px 11px;border-radius:9px">Đã hết gói</span>';
+  else statusBadge='<span style="font-size:12px;font-weight:700;color:var(--accent,#2b5fc4);background:rgba(43,95,196,.12);padding:5px 11px;border-radius:9px">Khách mới</span>';
+
+  var totalSpent=c.packages.reduce(function(a,p){return a+p.total;},0);
+  var cur=c.packages[0]; var remaining=cur?(5-cur.sessions.filter(function(s){return s.done;}).length):0;
+
+  var pkgHtml='';
+  c.packages.forEach(function(p,pi){
+    var done=p.sessions.filter(function(s){return s.done;}).length; var tc=T[p.tone];
+    var sessHtml=p.sessions.map(function(s,idx){
+      if(s.done){
+        var anim=state.justMarked===(p.id+':'+idx)? 'popIn .55s cubic-bezier(.2,.9,.3,1.2) both':'none';
+        return '<div class="sess" data-act="session" data-pid="'+esc(p.id)+'" data-idx="'+idx+'" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:9px;cursor:pointer;min-width:0">'
+          + '<div style="width:100%;height:50px;border-radius:14px;background:linear-gradient(135deg,#3fb87a,#2e9e6b);display:flex;align-items:center;justify-content:center;box-shadow:0 5px 13px rgba(46,158,107,.3);animation:'+anim+'">'+ICON.checkBig+'</div>'
+          + '<div style="text-align:center;line-height:1.35"><div style="font-size:12.5px;font-weight:700;color:#16243d;font-variant-numeric:tabular-nums">'+dShort(s.date)+'</div><div style="font-size:11px;color:#7a8eaa;font-variant-numeric:tabular-nums">'+(s.tension? s.tension+' lbs':'')+'</div></div>'
+        + '</div>';
+      }
+      return '<div class="sess-empty" data-act="session" data-pid="'+esc(p.id)+'" data-idx="'+idx+'" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:9px;cursor:pointer;min-width:0">'
+        + '<div class="sessbox" style="width:100%;height:50px;border-radius:14px;border:1.6px dashed #c2cfe2;background:#f5f8fd;display:flex;align-items:center;justify-content:center;color:#9bb0d0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></div>'
+        + '<div style="text-align:center;line-height:1.35"><div style="font-size:12.5px;font-weight:700;color:#90a2bf">Lần '+(idx+1)+'</div><div style="font-size:11px;color:#b3c1d8">Chưa đan</div></div>'
+      + '</div>';
+    }).join('');
+    pkgHtml += '<div class="pkgc" style="background:#fff;border:1px solid #e6edf6;border-radius:20px;padding:22px 24px;box-shadow:0 6px 20px rgba(27,63,134,.05);transition:transform .4s cubic-bezier(.34,1.4,.5,1),box-shadow .4s ease">'
+      + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:18px">'
+        + '<div><div style="display:flex;align-items:center;gap:10px"><span style="display:flex;align-items:center;gap:7px;font-size:14px;font-weight:800;color:#16243d"><span style="width:10px;height:10px;border-radius:3px;background:'+tc.color+'"></span>'+esc(tc.label)+'</span>'
+          + (pi===0? '<span style="font-size:11px;font-weight:700;color:var(--accent,#2b5fc4);background:rgba(43,95,196,.12);padding:4px 9px;border-radius:7px">HIỆN TẠI</span>':'')+'</div>'
+          + '<div style="font-size:13px;color:#7a8eaa;font-weight:500;margin-top:6px">Mua ngày '+dLong(p.buyDate)+' · '+fmt(p.per)+'/lần</div></div>'
+        + '<div style="text-align:right"><div style="font-size:20px;font-weight:800;font-variant-numeric:tabular-nums">'+fmt(p.total)+'</div><div style="font-size:12px;color:#2e7d52;font-weight:700;margin-top:2px">'+done+'/5 lần đan</div></div>'
+      + '</div>'
+      + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px"><div style="flex:1;height:7px;border-radius:5px;background:#e6edf6;overflow:hidden"><div style="height:100%;width:'+(done/5*100)+'%;background:linear-gradient(90deg,#3fb87a,#2e9e6b);border-radius:5px;transition:width .6s cubic-bezier(.2,.8,.2,1)"></div></div></div>'
+      + '<div style="display:flex;gap:11px">'+sessHtml+'</div>'
+    + '</div>';
+  });
+
+  var body;
+  if(c.packages.length>0){
+    body='<div style="font-size:15px;font-weight:800;color:#16243d;margin:24px 4px 14px;letter-spacing:-.01em">Lịch sử gói đan</div><div style="display:flex;flex-direction:column;gap:16px">'+pkgHtml+'</div>';
+  } else {
+    body='<div style="background:#fff;border:1.5px dashed #d2ddec;border-radius:20px;padding:48px 24px;text-align:center;margin-top:20px"><div style="font-size:17px;font-weight:700;color:#5a7299;margin-bottom:8px">Khách chưa có gói đan nào</div><div style="font-size:14px;color:#90a2bf;margin-bottom:20px">Tạo gói 5 lần đan đầu tiên cho khách này</div><button data-act="addPackage" style="display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,var(--accent,#2b5fc4),var(--accent-deep,#1f3f86));color:#fff;border:none;border-radius:13px;padding:12px 20px;font-weight:700;font-size:14px;cursor:pointer">'+ICON.plus+'Tạo gói đầu tiên</button></div>';
+  }
+
+  return '<div style="position:relative;z-index:1;padding:30px 38px 48px;max-width:980px;'+(ANIM_PAGE?'animation:pageIn .45s ease both':'')+'">'
+    + '<div class="back" data-act="goList" style="display:inline-flex;align-items:center;gap:7px;color:#5a7299;font-weight:600;font-size:14px;cursor:pointer;margin-bottom:22px">'+ICON.back+'Danh sách khách hàng</div>'
+    + '<div style="background:#fff;border:1px solid #e6edf6;border-radius:22px;padding:26px 28px;box-shadow:0 8px 26px rgba(27,63,134,.06);margin-bottom:18px">'
+      + '<div style="display:flex;align-items:center;gap:18px">'
+        + '<div style="width:64px;height:64px;border-radius:18px;background:linear-gradient(135deg,var(--accent2,#5b8def),var(--accent,#2b5fc4));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;box-shadow:0 8px 18px rgba(43,95,196,.3)">'+esc(c.initials)+'</div>'
+        + '<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:12px"><div style="font-size:24px;font-weight:800;letter-spacing:-.02em">'+esc(c.name)+'</div>'+statusBadge+'</div>'
+          + '<div style="font-size:15px;color:#5a7299;font-weight:500;margin-top:4px;font-variant-numeric:tabular-nums">'+esc(c.phone)+'</div></div>'
+        + '<button class="btnp" data-act="addPackage" style="display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,var(--accent,#2b5fc4),var(--accent-deep,#1f3f86));color:#fff;border:none;border-radius:13px;padding:12px 18px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 8px 20px rgba(31,63,134,.26)">'+ICON.plus+'Thêm gói mới</button>'
+      + '</div>'
+      + '<div style="display:flex;gap:12px;margin-top:22px">'
+        + '<div style="flex:1;background:#f4f7fc;border-radius:14px;padding:15px 17px"><div style="font-size:12px;color:#7a8eaa;font-weight:600;margin-bottom:5px">Tổng chi tiêu</div><div style="font-size:19px;font-weight:800;font-variant-numeric:tabular-nums">'+fmt(totalSpent)+'</div></div>'
+        + '<div style="flex:1;background:#f4f7fc;border-radius:14px;padding:15px 17px"><div style="font-size:12px;color:#7a8eaa;font-weight:600;margin-bottom:5px">Số gói đã mua</div><div style="font-size:19px;font-weight:800;font-variant-numeric:tabular-nums">'+c.packages.length+' gói</div></div>'
+        + '<div style="flex:1;background:#f4f7fc;border-radius:14px;padding:15px 17px"><div style="font-size:12px;color:#7a8eaa;font-weight:600;margin-bottom:5px">Còn lại (gói hiện tại)</div><div style="font-size:19px;font-weight:800;font-variant-numeric:tabular-nums">'+(cur? remaining+' lần':'—')+'</div></div>'
+      + '</div>'
+    + '</div>'+body
+  + '</div>';
+}
+
+function pageReports(){
+  var st=state; var rep=computeReport();
+  function seg(active,act,label){
+    if(active) return '<div style="padding:8px 14px;border-radius:9px;font-size:13px;font-weight:700;background:var(--accent,#2b5fc4);color:#fff;cursor:pointer">'+label+'</div>';
+    return '<div class="seg" data-act="'+act+'" style="padding:8px 14px;border-radius:9px;font-size:13px;font-weight:600;color:#5a7299;cursor:pointer">'+label+'</div>';
+  }
+  function modeSeg(active,act,label){
+    if(active) return '<div style="padding:7px 14px;border-radius:8px;font-size:12.5px;font-weight:700;background:#fff;color:var(--accent,#2b5fc4);cursor:pointer;box-shadow:0 2px 6px rgba(27,63,134,.1)">'+label+'</div>';
+    return '<div data-act="'+act+'" style="padding:7px 14px;border-radius:8px;font-size:12.5px;font-weight:600;color:#5a7299;cursor:pointer">'+label+'</div>';
+  }
+  var barsHtml=rep.bars.map(function(b){
+    return '<div style="flex:1 0 34px;min-width:34px;display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;gap:9px">'
+      + '<div style="font-size:11.5px;font-weight:700;color:#16243d;font-variant-numeric:tabular-nums;white-space:nowrap;min-height:15px">'+esc(b.valLabel)+'</div>'
+      + '<div style="width:100%;max-width:54px;display:flex;align-items:flex-end;flex:1"><div style="width:100%;height:'+b.h+';min-height:4px;border-radius:9px 9px 3px 3px;background:linear-gradient(180deg,var(--accent2,#5b8def),var(--accent,#2b5fc4));transform-origin:bottom;animation:growBar .7s cubic-bezier(.2,.8,.2,1) both;animation-delay:'+b.delay+';transition:height .5s cubic-bezier(.2,.8,.2,1)"></div></div>'
+      + '<div style="font-size:11.5px;font-weight:600;color:#7a8eaa;white-space:nowrap">'+esc(b.axisLabel)+'</div>'
+    + '</div>';
+  }).join('');
+  var toneHtml=rep.tone.map(function(t){
+    return '<div><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px"><span style="display:flex;align-items:center;gap:9px;font-size:14px;font-weight:700"><span style="width:11px;height:11px;border-radius:3px;background:'+t.color+'"></span>'+esc(t.label)+'</span><span style="font-size:14px;font-weight:800;font-variant-numeric:tabular-nums">'+esc(t.valLabel)+'</span></div>'
+      + '<div style="height:12px;border-radius:7px;background:#f0f4fa;overflow:hidden"><div style="height:100%;width:'+t.w+';background:'+t.color+';border-radius:7px;transform-origin:left;animation:growW .8s cubic-bezier(.2,.8,.2,1) both;transition:width .5s cubic-bezier(.2,.8,.2,1)"></div></div></div>';
+  }).join('');
+  var reportTitle=(st.reportMode==='revenue'?'Doanh thu theo ':'Lượt đan theo ')+(st.granularity==='day'?'ngày':st.granularity==='week'?'tuần':'tháng');
+
+  return '<div style="position:relative;z-index:1;padding:32px 38px 48px;'+(ANIM_PAGE?'animation:pageIn .45s ease both':'')+'">'
+    + '<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:24px">'
+      + '<div><div style="font-size:26px;font-weight:800;letter-spacing:-.02em">Báo cáo</div><div style="font-size:13.5px;color:#5a7299;font-weight:500;margin-top:3px">Doanh thu &amp; lượt đan theo thời gian</div></div>'
+      + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">'
+        + '<div style="display:flex;gap:4px;background:#fff;border:1px solid #e6edf6;border-radius:13px;padding:5px">'
+          + seg(st.granularity==='day','granDay','Ngày')
+          + seg(st.granularity==='week','granWeek','Tuần')
+          + seg(st.granularity==='month','granMonth','Tháng')
+        + '</div>'
+        + '<div class="rangebtn" data-act="openRange" style="display:flex;align-items:center;gap:9px;background:#fff;border:1px solid #e6edf6;border-radius:13px;padding:9px 14px;cursor:pointer;font-weight:700;font-size:13px;color:#16243d;transition:border-color .15s">'+ICON.cal+esc(st.rangeLabel)+ICON.chev+'</div>'
+      + '</div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:18px">'
+      + '<div style="background:#fff;border:1px solid #e6edf6;border-radius:18px;padding:22px;box-shadow:0 6px 20px rgba(27,63,134,.05)"><div style="font-size:13px;color:#7a8eaa;font-weight:600;margin-bottom:10px">Doanh thu</div><div id="cRev" style="font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:var(--accent,#2b5fc4)">'+fmt(st.counts.revenue)+'</div></div>'
+      + '<div style="background:#fff;border:1px solid #e6edf6;border-radius:18px;padding:22px;box-shadow:0 6px 20px rgba(27,63,134,.05)"><div style="font-size:13px;color:#7a8eaa;font-weight:600;margin-bottom:10px">Số gói bán ra</div><div id="cPkg" style="font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em">'+st.counts.packages+'</div></div>'
+      + '<div style="background:#fff;border:1px solid #e6edf6;border-radius:18px;padding:22px;box-shadow:0 6px 20px rgba(27,63,134,.05)"><div style="font-size:13px;color:#7a8eaa;font-weight:600;margin-bottom:10px">Lượt đan thực hiện</div><div id="cSess" style="font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:#2e9e6b">'+st.counts.sessions+'</div></div>'
+    + '</div>'
+    + '<div style="background:#fff;border:1px solid #e6edf6;border-radius:20px;padding:24px 26px;box-shadow:0 6px 20px rgba(27,63,134,.05);margin-bottom:18px">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:26px"><div style="font-size:15px;font-weight:800">'+esc(reportTitle)+'</div>'
+        + '<div style="display:flex;gap:6px;background:#f0f4fa;border-radius:11px;padding:4px">'+modeSeg(st.reportMode==='revenue','setModeRevenue','Doanh thu')+modeSeg(st.reportMode==='sessions','setModeSessions','Lượt đan')+'</div></div>'
+      + '<div style="display:flex;align-items:flex-end;gap:8px;height:200px;padding:0 4px 8px;overflow-x:auto;overflow-y:hidden">'+barsHtml+'</div>'
+    + '</div>'
+    + '<div style="background:#fff;border:1px solid #e6edf6;border-radius:20px;padding:24px 26px;box-shadow:0 6px 20px rgba(27,63,134,.05)"><div style="font-size:15px;font-weight:800;margin-bottom:20px">Phân bổ theo loại cước</div><div style="display:flex;flex-direction:column;gap:18px">'+toneHtml+'</div></div>'
+  + '</div>';
+}
+
+// ---------- modals ----------
+function overlay(width, inner){
+  // Play the open animation only when the modal first appears; while it stays
+  // open (re-renders from toast / cloud sync) keep it static so it doesn't flash.
+  var ovAnim=state.modalClosing?'ovOut':(ANIM_MODAL?'ovIn':'none'), sheetAnim=state.modalClosing?'sheetOut':(ANIM_MODAL?'sheetIn':'none');
+  return '<div data-act="closeModal" style="position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(22,36,61,.42);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:'+ovAnim+' .27s ease both">'
+    + '<div data-act="modalStop" style="width:'+width+';max-width:92vw;background:#fff;border-radius:24px;padding:28px;box-shadow:0 30px 70px rgba(22,36,61,.32);animation:'+sheetAnim+' .3s cubic-bezier(.2,.8,.2,1) both">'+inner+'</div>'
+  + '</div>';
+}
+function modalAddCustomer(){
+  var f=state.custForm;
+  var inner='<div style="font-size:20px;font-weight:800;margin-bottom:4px">Thêm khách hàng</div><div style="font-size:13.5px;color:#7a8eaa;margin-bottom:22px">Nhập thông tin khách mới</div>'
+    + '<label style="display:block;font-size:13px;font-weight:700;color:#5a7299;margin-bottom:8px">Họ và tên</label>'
+    + '<input class="inp" data-inp="cname" data-k="cname" value="'+esc(f.name)+'" placeholder="VD: Nguyễn Văn A" style="width:100%;border:1.5px solid #dde6f2;border-radius:12px;padding:13px 15px;font-size:15px;color:#16243d;margin-bottom:18px;transition:border-color .15s">'
+    + '<label style="display:block;font-size:13px;font-weight:700;color:#5a7299;margin-bottom:8px">Số điện thoại</label>'
+    + '<input class="inp" data-inp="cphone" data-k="cphone" value="'+esc(f.phone)+'" placeholder="VD: 0905 123 456" style="width:100%;border:1.5px solid #dde6f2;border-radius:12px;padding:13px 15px;font-size:15px;color:#16243d;margin-bottom:26px;font-variant-numeric:tabular-nums;transition:border-color .15s">'
+    + '<div style="display:flex;gap:12px"><button class="ghostbtn" data-act="closeModal" style="flex:1;background:#f0f4fa;color:#5a7299;border:none;border-radius:13px;padding:14px;font-weight:700;font-size:14.5px;cursor:pointer">Hủy</button>'
+    + '<button data-act="addCustomerSave" style="flex:1.4;background:linear-gradient(135deg,var(--accent,#2b5fc4),var(--accent-deep,#1f3f86));color:#fff;border:none;border-radius:13px;padding:14px;font-weight:700;font-size:14.5px;cursor:pointer;box-shadow:0 8px 18px rgba(31,63,134,.26)">Thêm khách</button></div>';
+  return overlay('420px', inner);
+}
+function modalAddPackage(){
+  var T=TONES(); var tone=state.pkgForm.tone;
+  function opt(key){
+    var t=T[key]; var sel=(tone===key);
+    var border=sel?'2px solid var(--accent,#2b5fc4)':'2px solid #e6edf6';
+    var bg=sel?'background:rgba(43,95,196,.06);':'';
+    return '<div class="'+(sel?'':'toneopt')+'" data-act="pickTone" data-tone="'+key+'" style="border:'+border+';'+bg+'border-radius:15px;padding:16px 18px;cursor:pointer;display:flex;align-items:center;justify-content:space-between"><div><div style="font-size:15px;font-weight:800;display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:3px;background:'+t.color+'"></span>'+t.label+'</div><div style="font-size:12.5px;color:#7a8eaa;margin-top:4px">'+fmt(t.per)+'/lần</div></div><div style="font-size:18px;font-weight:800;font-variant-numeric:tabular-nums">'+fmt(t.total)+'</div></div>';
+  }
+  var pkgTone=T[tone]; var save=pkgTone.per*5-pkgTone.total;
+  var inner='<div style="font-size:20px;font-weight:800;margin-bottom:4px">Gói đan mới</div><div style="font-size:13.5px;color:#7a8eaa;margin-bottom:20px">Gói 5 lần đan · giảm 20% so với lẻ</div>'
+    + '<div style="display:flex;flex-direction:column;gap:12px;margin-bottom:22px">'+opt('BG65')+opt('BG66')+'</div>'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;background:#f4f7fc;border-radius:13px;padding:14px 16px;margin-bottom:22px"><span style="font-size:13.5px;color:#5a7299;font-weight:600">Tiết kiệm so với mua lẻ</span><span style="font-size:15px;font-weight:800;color:#2e9e6b;font-variant-numeric:tabular-nums">'+fmt(save)+'</span></div>'
+    + '<div style="display:flex;gap:12px"><button class="ghostbtn" data-act="closeModal" style="flex:1;background:#f0f4fa;color:#5a7299;border:none;border-radius:13px;padding:14px;font-weight:700;font-size:14.5px;cursor:pointer">Hủy</button>'
+    + '<button data-act="addPackageSave" style="flex:1.4;background:linear-gradient(135deg,var(--accent,#2b5fc4),var(--accent-deep,#1f3f86));color:#fff;border:none;border-radius:13px;padding:14px;font-weight:700;font-size:14.5px;cursor:pointer;box-shadow:0 8px 18px rgba(31,63,134,.26)">Tạo gói</button></div>';
+  return overlay('460px', inner);
+}
+function modalSession(){
+  var sf=state.sessionForm;
+  var title=sf.isEdit? 'Sửa lần đan #'+(sf.idx+1) : 'Ghi nhận lần đan #'+(sf.idx+1);
+  var inner='<div style="font-size:20px;font-weight:800;margin-bottom:4px">'+esc(title)+'</div><div style="font-size:13.5px;color:#7a8eaa;margin-bottom:22px">Thông tin lần đan vợt</div>'
+    + '<div style="display:flex;gap:14px;margin-bottom:18px">'
+      + '<div style="flex:1.3"><label style="display:block;font-size:13px;font-weight:700;color:#5a7299;margin-bottom:8px">Ngày đan</label><input class="inp" type="date" data-inp="sfdate" data-k="sfdate" value="'+esc(sf.date)+'" style="width:100%;border:1.5px solid #dde6f2;border-radius:12px;padding:12px 14px;font-size:14.5px;color:#16243d;transition:border-color .15s"></div>'
+      + '<div style="flex:1"><label style="display:block;font-size:13px;font-weight:700;color:#5a7299;margin-bottom:8px">Tension (lbs)</label><input class="inp" type="number" data-inp="sftension" data-k="sftension" value="'+esc(sf.tension)+'" placeholder="27" style="width:100%;border:1.5px solid #dde6f2;border-radius:12px;padding:12px 14px;font-size:14.5px;color:#16243d;font-variant-numeric:tabular-nums;transition:border-color .15s"></div>'
+    + '</div>'
+    + '<label style="display:block;font-size:13px;font-weight:700;color:#5a7299;margin-bottom:8px">Tên vợt</label><input class="inp" data-inp="sfracket" data-k="sfracket" value="'+esc(sf.racket)+'" placeholder="VD: Yonex Astrox 99 Pro" style="width:100%;border:1.5px solid #dde6f2;border-radius:12px;padding:13px 15px;font-size:14.5px;color:#16243d;margin-bottom:18px;transition:border-color .15s">'
+    + '<label style="display:block;font-size:13px;font-weight:700;color:#5a7299;margin-bottom:8px">Ghi chú</label><textarea class="inp" data-inp="sfnote" data-k="sfnote" rows="2" placeholder="Ghi chú thêm (tuỳ chọn)" style="width:100%;border:1.5px solid #dde6f2;border-radius:12px;padding:13px 15px;font-size:14.5px;color:#16243d;margin-bottom:26px;resize:none;transition:border-color .15s">'+esc(sf.note)+'</textarea>'
+    + '<div style="display:flex;gap:12px"><button class="ghostbtn" data-act="closeModal" style="flex:1;background:#f0f4fa;color:#5a7299;border:none;border-radius:13px;padding:14px;font-weight:700;font-size:14.5px;cursor:pointer">Hủy</button>'
+    + '<button data-act="saveSession" style="flex:1.4;background:linear-gradient(135deg,#3fb87a,#2e9e6b);color:#fff;border:none;border-radius:13px;padding:14px;font-weight:700;font-size:14.5px;cursor:pointer;box-shadow:0 8px 18px rgba(46,158,107,.3)">Lưu lần đan</button></div>';
+  return overlay('460px', inner);
+}
+function modalRange(){
+  var rd=state.rangeDraft;
+  var nm=rd.calM+1, ny=rd.calY; if(nm>11){nm=0;ny++;}
+  var monthName=function(m){return 'Tháng '+(m+1);};
+  var ovAnim=state.modalClosing?'ovOut':(ANIM_MODAL?'ovIn':'none'), sheetAnim=state.modalClosing?'sheetOut':(ANIM_MODAL?'sheetIn':'none');
+  var presetMeta=[['today','Hôm nay'],['yesterday','Hôm qua'],['7d','7 ngày trước'],['30d','30 ngày trước'],['thisMonth','Tháng này'],['lastMonth','Tháng trước']];
+  var presetsHtml=presetMeta.map(function(pm){
+    var key=pm[0], name=pm[1]; var active=rd.presetName===name;
+    var style='padding:13px 16px;border-radius:11px;font-size:14px;cursor:pointer;'+(active?'background:rgba(43,95,196,.1);color:var(--accent-deep,#1f3f86);font-weight:800;':'color:#5a7299;font-weight:600;');
+    return '<div class="presetrow" data-act="pickPreset" data-preset="'+key+'" style="'+style+'">'+name+'</div>';
+  }).join('');
+  var weekdays=['T2','T3','T4','T5','T6','T7','CN'];
+  var wdHtml=weekdays.map(function(w){return '<div style="text-align:center;font-size:11.5px;font-weight:700;color:#90a2bf;padding:6px 0">'+w+'</div>';}).join('');
+  function calGrid(cells){
+    return cells.map(function(c){
+      var attr=c.clickable? ' class="calday" data-act="pickDay" data-day="'+c.iso+'"':'';
+      return '<div'+attr+' style="'+c.style+'">'+c.day+'</div>';
+    }).join('');
+  }
+  var calLeft=buildCal(rd.calY,rd.calM,rd.from,rd.to), calRight=buildCal(ny,nm,rd.from,rd.to);
+  var boxBase='flex:1;border-radius:13px;padding:13px 16px;font-size:14.5px;font-weight:700;cursor:pointer;text-align:center;';
+  var fromBoxStyle=boxBase+(rd.focus==='from'?'border:1.5px solid var(--accent,#2b5fc4);background:rgba(43,95,196,.05);color:#16243d;':'border:1.5px solid #dde6f2;color:#16243d;');
+  var toBoxStyle=boxBase+(rd.focus==='to'?'border:1.5px solid var(--accent,#2b5fc4);background:rgba(43,95,196,.05);color:#16243d;':'border:1.5px solid #dde6f2;color:'+(rd.to?'#16243d;':'#90a2bf;'));
+  var draftLabel=rd.from?(dMid(rd.from)+(rd.to&&rd.to!==rd.from?'  →  '+dMid(rd.to):'')):'Chọn khoảng ngày';
+
+  var inner='<div style="display:flex;min-height:0;flex:1">'
+    + '<div style="width:188px;flex-shrink:0;border-right:1px solid #eef2f8;padding:18px 14px;display:flex;flex-direction:column;gap:3px">'+presetsHtml+'</div>'
+    + '<div style="flex:1;min-width:0;padding:20px 24px;display:flex;flex-direction:column">'
+      + '<div style="display:flex;gap:12px;margin-bottom:18px"><div data-act="focusFrom" style="'+fromBoxStyle+'">'+formatVNLong(rd.from)+'</div><div data-act="focusTo" style="'+toBoxStyle+'">'+formatVNLong(rd.to)+'</div></div>'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'
+        + '<div class="seg" data-act="prevMonth" style="width:34px;height:34px;border-radius:10px;background:#f0f4fa;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#5a7299">'+ICON.chevL+'</div>'
+        + '<div style="flex:1;display:flex;justify-content:space-around;gap:12px"><div style="font-size:14.5px;font-weight:800;color:#16243d">'+monthName(rd.calM)+' - '+rd.calY+'</div><div style="font-size:14.5px;font-weight:800;color:#16243d">'+monthName(nm)+' - '+ny+'</div></div>'
+        + '<div class="seg" data-act="nextMonth" style="width:34px;height:34px;border-radius:10px;background:#f0f4fa;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#5a7299">'+ICON.chevR+'</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:24px">'
+        + '<div style="flex:1;min-width:0"><div style="display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:6px">'+wdHtml+'</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">'+calGrid(calLeft)+'</div></div>'
+        + '<div style="flex:1;min-width:0"><div style="display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:6px">'+wdHtml+'</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">'+calGrid(calRight)+'</div></div>'
+      + '</div>'
+    + '</div>'
+  + '</div>'
+  + '<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;border-top:1px solid #eef2f8;padding:16px 24px"><div style="font-size:13px;color:#7a8eaa;font-weight:600">'+draftLabel+'</div>'
+    + '<div style="display:flex;gap:12px"><button data-act="closeModal" style="background:#fff;color:#5a7299;border:1.5px solid #dde6f2;border-radius:13px;padding:11px 22px;font-weight:700;font-size:14px;cursor:pointer">Hủy</button>'
+    + '<button data-act="applyRange" style="background:linear-gradient(135deg,var(--accent,#2b5fc4),var(--accent-deep,#1f3f86));color:#fff;border:none;border-radius:13px;padding:11px 26px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 8px 18px rgba(31,63,134,.26)">Áp dụng</button></div>';
+
+  return '<div data-act="closeModal" style="position:fixed;inset:0;z-index:55;display:flex;align-items:center;justify-content:center;background:rgba(22,36,61,.42);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:'+ovAnim+' .27s ease both">'
+    + '<div data-act="modalStop" style="width:880px;max-width:94vw;background:#fff;border-radius:24px;overflow:hidden;box-shadow:0 30px 70px rgba(22,36,61,.32);animation:'+sheetAnim+' .3s cubic-bezier(.2,.8,.2,1) both;display:flex;flex-direction:column;max-height:92vh">'+inner+'</div>'
+  + '</div>';
+}
+function toastView(){
+  if(!state.toast) return '';
+  return '<div style="position:fixed;left:50%;bottom:30px;z-index:60;background:#16243d;color:#fff;padding:14px 22px;border-radius:14px;font-size:14px;font-weight:700;box-shadow:0 16px 40px rgba(22,36,61,.4);display:flex;align-items:center;gap:10px;animation:toastIn .3s cubic-bezier(.2,.8,.2,1) both">'+ICON.toastCheck+esc(state.toast)+'</div>';
+}
+
+function modals(){
+  var m=state.modal; var out='';
+  if(m==='addCustomer') out+=modalAddCustomer();
+  else if(m==='addPackage') out+=modalAddPackage();
+  else if(m==='session') out+=modalSession();
+  else if(m==='range') out+=modalRange();
+  out+=toastView();
+  return out;
+}
+
+function view(){
+  var page='';
+  if(state.page==='list') page=pageList();
+  else if(state.page==='detail') page=pageDetail();
+  else if(state.page==='reports') page=pageReports();
+  return '<div style="display:flex;width:100vw;height:100vh;overflow:hidden;position:relative">'
+    + sidebar()
+    + '<div id="content" style="flex:1;min-width:0;overflow-y:auto;position:relative;background:#e8f1fc">'+bgLayers()+page+'</div>'
+    + modals()
+  + '</div>';
+}
+
+// ---------- render with focus preservation ----------
+var appEl=document.getElementById('app');
+function render(){
+  // Animate a page/modal only on the render where it first appears.
+  ANIM_PAGE = (state.page !== _prevPage);
+  ANIM_MODAL = (!!state.modal && state.modal !== _prevModal);
+  var ae=document.activeElement;
+  var fk=(ae&&ae.dataset)?ae.dataset.k:null;
+  var ss=null, se=null, restoreSel=false;
+  if(ae){
+    var tag=ae.tagName, typ=(ae.getAttribute&&ae.getAttribute('type'))||'';
+    if(tag==='TEXTAREA' || (tag==='INPUT' && (typ===''||typ==='text'||typ==='search'||typ==='tel'))){
+      try{ ss=ae.selectionStart; se=ae.selectionEnd; restoreSel=true; }catch(e){}
+    }
+  }
+  appEl.innerHTML=view();
+  _prevPage=state.page; _prevModal=state.modal;
+  if(fk){
+    var el=appEl.querySelector('[data-k="'+fk+'"]');
+    if(el){ el.focus(); if(restoreSel && ss!=null){ try{ el.setSelectionRange(ss,se); }catch(e){} } }
+  }
+  bindGlow();
+}
+
+// ---------- mouse glow ----------
+var rmm=false;
+try{ rmm=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
+var glowRaf=null;
+function bindGlow(){
+  if(rmm) return;
+  var content=document.getElementById('content'), glow=document.getElementById('glow');
+  if(!content||!glow) return;
+  content.addEventListener('mousemove', function(e){
+    var r=content.getBoundingClientRect();
+    var x=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)), y=Math.max(0,Math.min(1,(e.clientY-r.top)/r.height));
+    if(glowRaf) return;
+    glowRaf=requestAnimationFrame(function(){ glowRaf=null;
+      var g=glow.style;
+      g.setProperty('--mx',(x*100).toFixed(1)+'%'); g.setProperty('--my',(y*100).toFixed(1)+'%');
+      g.setProperty('--mx2',((1-x)*100).toFixed(1)+'%'); g.setProperty('--my2',((1-y*0.7)*100).toFixed(1)+'%');
+      var warm=0.30+x*0.26, cool=0.22+(1-x)*0.30;
+      g.setProperty('--glow-warm','rgba(255,244,218,'+warm.toFixed(2)+')');
+      g.setProperty('--glow-cool','rgba(110,172,255,'+cool.toFixed(2)+')');
+    });
+  });
+  content.addEventListener('mouseleave', function(){
+    var g=glow.style; g.setProperty('--mx','60%'); g.setProperty('--my','38%'); g.setProperty('--mx2','40%'); g.setProperty('--my2','70%');
+    g.setProperty('--glow-warm','rgba(255,246,225,.42)'); g.setProperty('--glow-cool','rgba(120,178,255,.34)');
+  });
+}
+
+// ---------- event delegation ----------
+var ACTIONS={
+  goList:goList, goReports:goReports, closeModal:closeModal, modalStop:function(){},
+  addCustomer:function(){ openModal('addCustomer'); },
+  addCustomerSave:addCustomer,
+  addPackage:function(){ openModal('addPackage', {pkgForm:{tone:'BG66'}}); },
+  addPackageSave:addPackage,
+  saveSession:saveSession,
+  setModeRevenue:function(){ setState({reportMode:'revenue'}); },
+  setModeSessions:function(){ setState({reportMode:'sessions'}); },
+  granDay:function(){ setState({granularity:'day'}); },
+  granWeek:function(){ setState({granularity:'week'}); },
+  granMonth:function(){ setState({granularity:'month'}); },
+  openRange:openRange,
+  focusFrom:function(){ setFocus('from'); },
+  focusTo:function(){ setFocus('to'); },
+  prevMonth:function(){ shiftCal(-1); },
+  nextMonth:function(){ shiftCal(1); },
+  applyRange:applyRange
+};
+appEl.addEventListener('click', function(e){
+  var el=e.target.closest('[data-act]');
+  if(!el) return;
+  var act=el.dataset.act;
+  if(act==='open'){ goDetail(el.dataset.id); return; }
+  if(act==='session'){ openSession(el.dataset.pid, parseInt(el.dataset.idx,10)); return; }
+  if(act==='pickTone'){ setState({pkgForm:{tone:el.dataset.tone}}); return; }
+  if(act==='pickPreset'){ pickPreset(el.dataset.preset); return; }
+  if(act==='pickDay'){ clickDay(el.dataset.day); return; }
+  var fn=ACTIONS[act];
+  if(fn) fn();
+});
+appEl.addEventListener('input', function(e){
+  var el=e.target.closest('[data-inp]'); if(!el) return;
+  var key=el.dataset.inp, val=el.value, st=state;
+  // Search needs a live re-render to filter the list. Staying on the list page
+  // means ANIM_PAGE is false, so cards don't replay their entrance (no flicker).
+  if(key==='search'){ state.search=val; render(); return; }
+  // Form fields: update state only, NO re-render. The DOM input already shows
+  // the typed text; re-rendering replayed the modal entrance animation on every
+  // keystroke, causing the flicker. We read state on submit.
+  if(key==='cname') state.custForm=Object.assign({},st.custForm,{name:val});
+  else if(key==='cphone') state.custForm=Object.assign({},st.custForm,{phone:val});
+  else if(key==='sfdate') state.sessionForm=Object.assign({},st.sessionForm,{date:val});
+  else if(key==='sftension') state.sessionForm=Object.assign({},st.sessionForm,{tension:val});
+  else if(key==='sfracket') state.sessionForm=Object.assign({},st.sessionForm,{racket:val});
+  else if(key==='sfnote') state.sessionForm=Object.assign({},st.sessionForm,{note:val});
+});
+// Enter-to-submit on add-customer name/phone
+appEl.addEventListener('keydown', function(e){
+  if(e.key!=='Enter') return;
+  var el=e.target.closest('[data-inp]'); if(!el) return;
+  if(el.dataset.inp==='cname'||el.dataset.inp==='cphone'){ e.preventDefault(); addCustomer(); }
+});
+
+// ---------- boot ----------
+render();
+if(CLOUD) bootCloud();
+
+})();
+</script>
+</body>
+</html>
